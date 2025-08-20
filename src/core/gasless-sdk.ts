@@ -29,14 +29,16 @@ export class GaslessSDK {
     params: GaslessTransferParams
   ): Promise<TransactionResult> {
     // Mock implementation for testing
+    // eslint-disable-next-line no-console
     console.log('Hello, this is a mock transfer from gasless-sdk!')
+    // eslint-disable-next-line no-console
     console.log('Transfer params:', {
       token: params.token,
       to: params.to,
       amount: params.amount.toString(),
       userAddress: params.userAddress,
     })
-    
+
     // Return mock success result
     return {
       hash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef' as `0x${string}`,
