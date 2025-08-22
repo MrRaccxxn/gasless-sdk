@@ -71,15 +71,17 @@ export class GaslessAASDK {
 
   public async connectWallet(): Promise<Address> {
     if (typeof window === 'undefined' || !window.ethereum) {
-      throw new Error('MetaMask or compatible wallet not found. Please install a wallet extension.')
+      throw new Error(
+        'MetaMask or compatible wallet not found. Please install a wallet extension.'
+      )
     }
 
     const { createWalletClient, custom } = await import('viem')
-    
+
     try {
       // Request account access
       await window.ethereum.request({ method: 'eth_requestAccounts' })
-      
+
       // Create wallet client from window.ethereum
       const walletClient = createWalletClient({
         transport: custom(window.ethereum),

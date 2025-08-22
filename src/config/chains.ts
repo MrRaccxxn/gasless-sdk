@@ -30,7 +30,7 @@ function createChainConfig(
       gaslessRelayerAddress:
         '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9' as const,
       relayerServiceUrl: relayerUrls[environment],
-    }
+    },
   }
 
   return baseConfigs[preset]

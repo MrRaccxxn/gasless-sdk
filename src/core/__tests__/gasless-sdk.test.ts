@@ -73,7 +73,7 @@ describe('GaslessSDK', () => {
         rpcUrl: 'https://rpc.sepolia.mantle.xyz',
         gaslessRelayerAddress: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         relayerServiceUrl: 'https://gasless-relayer-sepolia.mantle.com',
-        environment: 'production'
+        environment: 'production',
       })
       expect(config).not.toBe(mockConfig)
     })
@@ -276,6 +276,5 @@ describe('GaslessSDK', () => {
       expect(result.hash).toBe('0x123456')
       expect(fetch).toHaveBeenCalledTimes(1)
     })
-
   })
 })

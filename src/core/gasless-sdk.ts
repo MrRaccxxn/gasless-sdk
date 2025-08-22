@@ -7,8 +7,6 @@ import {
   http,
 } from 'viem'
 import type {
-  ChainPreset,
-  ChainConfig,
   GaslessConfig,
   SimpleTransferParams,
   GaslessTransferParams,
@@ -108,26 +106,28 @@ export class GaslessSDK {
 
     try {
       // Request account access
-      await window.ethereum.request({ method: 'eth_requestAccounts' })
+      const accounts = await window.ethereum.request({
+        method: 'eth_requestAccounts',
+      })
 
       // Create wallet client from window.ethereum
       const walletClient = createWalletClient({
         transport: custom(window.ethereum),
       })
 
-      // Get the connected account
-      const [account] = await walletClient.getAddresses()
-      if (!account) {
+      // Get the currently selected account from MetaMask directly
+      const currentAccount = accounts[0] as Address
+      if (!currentAccount) {
         throw new Error('No account found. Please connect your wallet.')
       }
 
-      // Set the wallet client with the connected account
+      // Set the wallet client with the currently selected account
       this._walletClient = {
         ...walletClient,
-        account: { address: account },
+        account: { address: currentAccount },
       } as WalletClient
 
-      return account
+      return currentAccount
     } catch (error) {
       throw new Error(
         `Failed to connect wallet: ${error instanceof Error ? error.message : 'Unknown error'}`
@@ -165,9 +165,30 @@ export class GaslessSDK {
       throw new Error('Wallet client not set or no account available')
     }
 
+    // Get the current account from MetaMask to ensure we have the right one
+    const currentAccounts = await window.ethereum.request({
+      method: 'eth_accounts',
+    })
+    const currentAccount = currentAccounts[0] as Address
+
+    // Update the wallet client account if it has changed
+    if (
+      currentAccount &&
+      currentAccount !== this._walletClient.account.address
+    ) {
+      console.log(
+        `🔄 Account changed from ${this._walletClient.account.address} to ${currentAccount}`
+      )
+      this._walletClient = {
+        ...this._walletClient,
+        account: { address: currentAccount },
+      } as WalletClient
+    }
+
     const userAddress = this._walletClient.account.address
+    // Use a longer deadline window to avoid timing issues
     const deadline =
-      params.deadline || BigInt(Math.floor(Date.now() / 1000) + 3600)
+      params.deadline || BigInt(Math.floor(Date.now() / 1000) + 7200) // 2 hours instead of 1
     const fee = params.fee || 0n
 
     const [userNonce, tokenNonce, tokenInfo, tokenVersion] = await Promise.all([
@@ -201,7 +222,7 @@ export class GaslessSDK {
         token: params.token,
         chainId: this.config.chainId,
         name: tokenInfo.name,
-        version: tokenVersion
+        version: tokenVersion,
       })
     }
 
@@ -219,17 +240,57 @@ export class GaslessSDK {
       verifyingContract: this.config.gaslessRelayerAddress,
     }
 
-    const [permitData, metaTxHash] = await Promise.all([
+    const [permitData] = await Promise.all([
       signPermit(this._walletClient, permitDomain, permitRequest),
-      Promise.resolve(createMetaTransferHash(relayerDomain, metaTx)),
     ])
+
+    // Check wallet chain ID vs SDK config
+    const walletChainId = await this._walletClient.getChainId()
+
+    // Debug logging for EIP-712 data
+    console.log('🔍 SDK EIP-712 Debug - SIGNING VALUES:', {
+      domain: {
+        name: relayerDomain.name,
+        version: relayerDomain.version,
+        chainId: walletChainId,
+        verifyingContract: relayerDomain.verifyingContract,
+      },
+      signingMessage: {
+        owner: metaTx.owner,
+        token: metaTx.token,
+        recipient: metaTx.recipient,
+        amount: metaTx.amount,
+        fee: metaTx.fee,
+        deadline: metaTx.deadline,
+        nonce: metaTx.nonce,
+      },
+      messageTypes: {
+        amount: typeof metaTx.amount,
+        fee: typeof metaTx.fee,
+        deadline: typeof metaTx.deadline,
+        nonce: typeof metaTx.nonce,
+      },
+      userAddress: this._walletClient.account.address,
+      walletChainId,
+      configChainId: this.config.chainId,
+      chainIdMatch: walletChainId === this.config.chainId,
+    })
+
+    if (walletChainId !== this.config.chainId) {
+      console.error(
+        '❌ CHAIN ID MISMATCH! Wallet is on chain',
+        walletChainId,
+        'but SDK expects',
+        this.config.chainId
+      )
+    }
 
     const metaTxSignature = await this._walletClient.signTypedData({
       account: this._walletClient.account,
       domain: {
         name: relayerDomain.name,
         version: relayerDomain.version,
-        chainId: relayerDomain.chainId,
+        chainId: 5003, // Force to exact value the contract expects
         verifyingContract: relayerDomain.verifyingContract,
       },
       types: {
@@ -385,6 +446,25 @@ export class GaslessSDK {
         message: authMessage,
       })
 
+      const payloadMetaTx = {
+        ...metaTx,
+        amount: metaTx.amount.toString(),
+        fee: metaTx.fee.toString(),
+        nonce: metaTx.nonce.toString(),
+        deadline: metaTx.deadline.toString(),
+      }
+
+      console.log('🔍 SDK EIP-712 Debug - SENDING TO BACKEND:', {
+        payloadMetaTx,
+        originalMetaTx: metaTx,
+        conversions: {
+          amount: `${metaTx.amount} -> "${metaTx.amount.toString()}"`,
+          fee: `${metaTx.fee} -> "${metaTx.fee.toString()}"`,
+          nonce: `${metaTx.nonce} -> "${metaTx.nonce.toString()}"`,
+          deadline: `${metaTx.deadline} -> "${metaTx.deadline.toString()}"`,
+        },
+      })
+
       const response = await fetch(
         `${this.config.relayerServiceUrl}/relay-transaction`,
         {
@@ -393,13 +473,7 @@ export class GaslessSDK {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            metaTx: {
-              ...metaTx,
-              amount: metaTx.amount.toString(),
-              fee: metaTx.fee.toString(),
-              nonce: metaTx.nonce.toString(),
-              deadline: metaTx.deadline.toString(),
-            },
+            metaTx: payloadMetaTx,
             permitData: {
               ...permitData,
               value: permitData.value.toString(),

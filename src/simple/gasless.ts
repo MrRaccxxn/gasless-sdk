@@ -9,7 +9,12 @@ import {
 } from 'viem'
 import { GaslessSDK } from '../core/gasless-sdk'
 import { GaslessAASDK } from '../aa/gasless-aa-sdk'
-import type { ChainPreset, GaslessConfig, TokenInfo, Environment } from '../types'
+import type {
+  ChainPreset,
+  GaslessConfig,
+  TokenInfo,
+  Environment,
+} from '../types'
 import type { AAGaslessConfig, AATransferParams } from '../aa/types'
 
 export interface SimpleConfig {
@@ -66,9 +71,15 @@ export class Gasless {
       ...(this.config.environment && { environment: this.config.environment }),
       ...(this.config.chainId && { chainId: this.config.chainId }),
       ...(this.config.rpcUrl && { rpcUrl: this.config.rpcUrl }),
-      ...(this.config.relayerAddress && { gaslessRelayerAddress: this.config.relayerAddress }),
-      ...(this.config.relayerUrl && { relayerServiceUrl: this.config.relayerUrl }),
-      ...(this.config.localRelayerUrl && { localRelayerUrl: this.config.localRelayerUrl }),
+      ...(this.config.relayerAddress && {
+        gaslessRelayerAddress: this.config.relayerAddress,
+      }),
+      ...(this.config.relayerUrl && {
+        relayerServiceUrl: this.config.relayerUrl,
+      }),
+      ...(this.config.localRelayerUrl && {
+        localRelayerUrl: this.config.localRelayerUrl,
+      }),
       ...(this.config.apiKey && { apiKey: this.config.apiKey }),
     }
 
@@ -107,7 +118,9 @@ export class Gasless {
     if (!this.coreSDK) throw new Error('Core SDK not initialized')
 
     if (!this.coreSDK) {
-      throw new Error('Wallet client required for permit signing. Call setWalletClient() first.')
+      throw new Error(
+        'Wallet client required for permit signing. Call setWalletClient() first.'
+      )
     }
 
     const result = await this.coreSDK.transfer({
@@ -129,7 +142,9 @@ export class Gasless {
     if (!this.aaSDK) throw new Error('AA SDK not initialized')
 
     if (!this.aaSDK) {
-      throw new Error('Wallet client required for AA transfers. Call setWalletClient() first.')
+      throw new Error(
+        'Wallet client required for AA transfers. Call setWalletClient() first.'
+      )
     }
 
     const aaParams: AATransferParams = {
@@ -138,7 +153,7 @@ export class Gasless {
       amount: params.amount,
       ...(params.feeToken && { feeToken: params.feeToken }),
     }
-    
+
     const result = await this.aaSDK.transferGasless(aaParams)
 
     return {

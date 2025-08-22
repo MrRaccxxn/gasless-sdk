@@ -235,7 +235,7 @@ describe('Gasless SDK Integration Tests', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,
         json: jest.fn().mockResolvedValue({
-          error: 'Insufficient balance'
+          error: 'Insufficient balance',
         }),
       })
 
@@ -274,7 +274,7 @@ describe('Gasless SDK Integration Tests', () => {
         rpcUrl: 'https://rpc.sepolia.mantle.xyz',
         gaslessRelayerAddress: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         relayerServiceUrl: 'https://gasless-relayer-sepolia.mantle.com',
-        environment: 'production'
+        environment: 'production',
       })
       expect(returnedConfig).not.toBe(config) // Should be a copy
 
