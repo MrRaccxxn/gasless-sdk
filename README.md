@@ -1,16 +1,15 @@
 # gasless-core
 
-> ⚠️ **Early Development Warning**: This package is in very early stages of development. The API is subject to significant changes and many features are not yet implemented. Use at your own risk in production environments.
-
-A TypeScript SDK for enabling gasless token transfers on Mantle EVM using meta-transactions and permit-based approvals.
+A TypeScript SDK for enabling gasless token transfers on Mantle EVM using meta-transactions and permit-based approvals with your deployed GaslessRelayer smart contract.
 
 ## Features
 
 - 🚫⛽ **Gasless Transactions**: Enable users to transfer tokens without holding native tokens for gas
 - 🔐 **EIP-2612 Permit Support**: Leverage permit-based approvals for enhanced UX
-- 🌉 **Meta-Transaction Framework**: Built on top of meta-transaction patterns
+- 🌉 **Meta-Transaction Framework**: Built on top of EIP-712 meta-transaction patterns
 - 📝 **TypeScript First**: Full type safety and excellent developer experience
 - 🧪 **Thoroughly Tested**: Comprehensive test suite with Jest
+- ⚡ **Simple API**: One-line transfers with the new simplified interface
 
 ## Installation
 
@@ -18,206 +17,312 @@ A TypeScript SDK for enabling gasless token transfers on Mantle EVM using meta-t
 npm install gasless-core
 ```
 
-```bash
-yarn add gasless-core
-```
-
-```bash
-pnpm add gasless-core
-```
-
 ## Quick Start
 
+### Simple One-Line Transfer
+
 ```typescript
-import { GaslessSDK } from 'gasless-core'
-import { createPublicClient, createWalletClient, http } from 'viem'
+import { Gasless } from 'gasless-core'
 
-// Initialize the SDK
-const config = {
-  chainId: 5000, // Mantle Network
+// One-line gasless transfer
+const result = await Gasless.quickTransfer({
   rpcUrl: 'https://rpc.mantle.xyz',
-  relayerUrl: 'https://your-relayer.com',
-  forwarderAddress: '0x...' // Your forwarder contract address
-}
-
-const publicClient = createPublicClient({
-  transport: http(config.rpcUrl)
+  chainId: 5000,
+  relayerAddress: '0xYourDeployedGaslessRelayerAddress',
+  relayerUrl: 'https://your-relayer-service.com' // Your relayer service endpoint
+}, {
+  token: '0xTokenAddress',        // Token contract address
+  to: '0xRecipientAddress',       // Recipient address  
+  amount: 1000000n,               // Amount (in token's smallest unit)
+  from: '0xUserPrivateKey'        // User's private key
 })
 
-const sdk = new GaslessSDK(config, publicClient)
-
-// Set wallet client for signing
-const walletClient = createWalletClient({
-  transport: http(config.rpcUrl)
-})
-sdk.setWalletClient(walletClient)
-
-// Perform a gasless transfer (mock implementation)
-const result = await sdk.transferGasless({
-  token: '0x...', // Token contract address
-  to: '0x...', // Recipient address
-  amount: 1000000000000000000n, // Amount in wei
-  userAddress: '0x...' // Sender address
-})
-
-console.log('Transfer result:', result)
+console.log('✅ Transfer successful:', result.hash)
 ```
+
+### Standard Usage
+
+```typescript
+import { Gasless } from 'gasless-core'
+
+// Initialize SDK
+const gasless = new Gasless({
+  rpcUrl: 'https://rpc.mantle.xyz',
+  chainId: 5000,
+  relayerAddress: '0xYourDeployedGaslessRelayerAddress',
+  relayerUrl: 'https://your-relayer-service.com',
+  apiKey: 'your-api-key' // Optional
+})
+
+// Check token balance first
+const balance = await gasless.getBalance(
+  '0xTokenAddress',
+  '0xUserAddress'
+)
+console.log('Balance:', balance)
+
+// Get token information
+const tokenInfo = await gasless.getTokenInfo('0xTokenAddress')
+console.log('Token whitelisted:', tokenInfo.isWhitelisted)
+
+// Estimate gas cost
+const gasEstimate = await gasless.estimateGas({
+  token: '0xTokenAddress',
+  to: '0xRecipientAddress',
+  amount: 1000000n,
+  from: '0xUserPrivateKey'
+})
+console.log('Estimated gas:', gasEstimate)
+
+// Execute transfer
+const result = await gasless.transfer({
+  token: '0xTokenAddress',
+  to: '0xRecipientAddress', 
+  amount: 1000000n,
+  from: '0xUserPrivateKey'
+})
+
+console.log('Success:', result.success)
+console.log('Transaction hash:', result.hash)
+console.log('Gas used:', result.gasUsed)
+```
+
+### Direct Execution (Without Relayer Service)
+
+If you want to execute directly without a relayer service:
+
+```typescript
+const gasless = new Gasless({
+  rpcUrl: 'https://rpc.mantle.xyz',
+  chainId: 5000,
+  relayerAddress: '0xYourDeployedGaslessRelayerAddress',
+  privateKey: '0xRelayerPrivateKey' // Your relayer's private key
+})
+
+const result = await gasless.transfer({
+  token: '0xTokenAddress',
+  to: '0xRecipientAddress',
+  amount: 1000000n,
+  from: '0xUserPrivateKey'
+})
+```
+
+## Setup Requirements
+
+### 1. Deploy GaslessRelayer Contract
+
+First, deploy the included `GaslessRelayer.sol` contract:
+
+```solidity
+// Deploy with these parameters:
+constructor(
+    address _owner,           // Your owner address
+    address _feeWallet,       // Address to receive fees
+    uint256 _maxTransferAmount, // Maximum transfer amount
+    uint256 _maxFeeAmount     // Maximum fee amount
+)
+```
+
+### 2. Configure Your Contract
+
+After deployment, configure your contract:
+
+```solidity
+// Whitelist tokens
+gaslessRelayer.whitelistToken(tokenAddress, true)
+
+// Set fee wallet
+gaslessRelayer.setFeeWallet(feeWalletAddress)
+
+// Set limits
+gaslessRelayer.setMaxTransferAmount(maxAmount)
+gaslessRelayer.setMaxFeeAmount(maxFee)
+```
+
+### 3. Set Up Relayer Service
+
+You need a relayer service that:
+- Accepts meta-transaction requests
+- Validates signatures
+- Submits transactions to the blockchain
+- Returns transaction hashes
+
+Example relayer endpoint: `POST /relay-transaction`
+
+### 4. User Flow
+
+1. **User signs** the transfer intent (EIP-712 signature)
+2. **User signs** the permit for token approval (EIP-2612)
+3. **SDK submits** both signatures to your relayer service
+4. **Relayer executes** the transaction on-chain
+5. **User receives** transaction confirmation
 
 ## API Reference
 
-### GaslessSDK
-
-The main SDK class for interacting with gasless transactions.
+### Gasless Class
 
 #### Constructor
-
 ```typescript
-new GaslessSDK(config: GaslessConfig, publicClient: PublicClient)
+new Gasless(config: SimpleConfig)
 ```
 
 #### Methods
 
-##### `setWalletClient(walletClient: WalletClient): void`
-Sets the wallet client for transaction signing.
+##### `transfer(params: SimpleTransferParams): Promise<SimpleResult>`
+Execute a gasless token transfer.
 
-##### `transferGasless(params: GaslessTransferParams): Promise<TransactionResult>`
-Executes a gasless token transfer (currently mock implementation).
+##### `getBalance(token: Address, account: Address): Promise<bigint>`
+Get token balance for an account.
 
-##### `getTokenInfo(tokenAddress: Address): Promise<TokenInfo>`
-Retrieves token information (not yet implemented).
+##### `getTokenInfo(token: Address): Promise<TokenInfo>`
+Get token information including whitelist status.
 
-##### `estimateGas(params: GaslessTransferParams): Promise<bigint>`
-Estimates gas for a gasless transfer (not yet implemented).
+##### `estimateGas(params: SimpleTransferParams): Promise<bigint>`
+Estimate gas cost for a transfer.
 
-##### `getUserNonce(userAddress: Address): Promise<bigint>`
-Gets the current nonce for a user (not yet implemented).
+##### `static quickTransfer(config: SimpleConfig, params: SimpleTransferParams): Promise<SimpleResult>`
+Static method for one-line transfers.
 
-##### `helloWorld(): string`
-Returns a hello world message for testing.
+### Types
 
-##### `getConfig(): GaslessConfig`
-Returns a copy of the current configuration.
-
-### EIP2612Permit
-
-Utility class for EIP-2612 permit functionality.
-
+#### SimpleConfig
 ```typescript
-import { EIP2612Permit } from 'gasless-core'
-
-const permit = new EIP2612Permit(
-  tokenAddress,
-  tokenName,
-  tokenVersion,
-  chainId
-)
-
-// Get typed data for permit signing
-const typedData = permit.getTypedData(permitData)
-```
-
-### Utility Functions
-
-```typescript
-import {
-  validateAddress,
-  validateAmount,
-  formatTokenAmount,
-  parseTokenAmount
-} from 'gasless-core'
-
-// Validate Ethereum address
-const validAddress = validateAddress('0x...')
-
-// Validate transfer amount
-validateAmount(1000000000000000000n)
-
-// Format token amounts for display
-const formatted = formatTokenAmount(1000000000000000000n, 18) // "1"
-
-// Parse user input to token amount
-const amount = parseTokenAmount('1.5', 18) // 1500000000000000000n
-```
-
-## Types
-
-The package exports comprehensive TypeScript types:
-
-```typescript
-import type {
-  GaslessConfig,
-  TokenInfo,
-  GaslessTransferParams,
-  TransactionResult,
-  PermitSignature,
-  EIP712Domain
-} from 'gasless-core'
-```
-
-### GaslessConfig
-
-```typescript
-interface GaslessConfig {
-  readonly chainId: number
-  readonly rpcUrl: string
-  readonly relayerUrl: string
-  readonly forwarderAddress: Address
+interface SimpleConfig {
+  rpcUrl: string              // RPC endpoint
+  chainId: number             // Chain ID (5000 for Mantle)
+  relayerAddress: Address     // Your deployed GaslessRelayer contract
+  privateKey?: Hex            // Relayer private key (for direct execution)
+  relayerUrl?: string         // Relayer service URL
+  apiKey?: string             // API key for relayer service
 }
 ```
 
-### GaslessTransferParams
-
+#### SimpleTransferParams
 ```typescript
-interface GaslessTransferParams {
-  readonly token: Address
-  readonly to: Address
-  readonly amount: bigint
-  readonly userAddress: Address
+interface SimpleTransferParams {
+  token: Address              // Token contract address
+  to: Address                 // Recipient address
+  amount: bigint              // Amount in token's smallest unit
+  from?: Hex                  // User's private key
 }
 ```
 
-## Development Status
+#### SimpleResult
+```typescript
+interface SimpleResult {
+  success: boolean            // Transfer success status
+  hash: string                // Transaction hash
+  gasUsed?: bigint           // Gas consumed
+}
+```
 
-### ✅ Implemented
-- Core SDK structure
-- Type definitions
-- Utility functions
-- EIP-2612 permit structure
-- Comprehensive testing setup
+## Advanced Usage
 
-### 🚧 In Progress / Planned
-- Actual gasless transfer implementation
-- Relayer integration
-- Gas estimation
-- Nonce management
-- Token info retrieval
-- Meta-transaction forwarder
-- Complete permit signing flow
+### Using Original Advanced APIs
+
+For advanced users who need more control:
+
+```typescript
+import { GaslessSDK, GaslessAASDK } from 'gasless-core'
+
+// Use original GaslessSDK for full control
+const sdk = new GaslessSDK(advancedConfig, publicClient)
+sdk.setWalletClient(walletClient)
+const result = await sdk.transferGasless(advancedParams)
+```
+
+### Error Handling
+
+```typescript
+try {
+  const result = await gasless.transfer(params)
+  console.log('Success:', result)
+} catch (error) {
+  if (error.message.includes('Token not whitelisted')) {
+    console.log('❌ Token not supported')
+  } else if (error.message.includes('Insufficient balance')) {
+    console.log('❌ Not enough tokens')
+  } else {
+    console.log('❌ Transfer failed:', error.message)
+  }
+}
+```
+
+## Testing
+
+### Example Test Setup
+
+```typescript
+// Test configuration
+const testConfig = {
+  rpcUrl: 'https://rpc.testnet.mantle.xyz', // Testnet
+  chainId: 5001, // Mantle Testnet
+  relayerAddress: '0xYourTestnetGaslessRelayerAddress',
+  relayerUrl: 'https://your-test-relayer.com'
+}
+
+// Run test
+const result = await Gasless.quickTransfer(testConfig, {
+  token: '0xTestTokenAddress',
+  to: '0xTestRecipientAddress',
+  amount: 1000000n, // 1 USDC (6 decimals)
+  from: '0xTestUserPrivateKey'
+})
+
+console.log('Test result:', result)
+```
+
+### Development Commands
+
+```bash
+npm run build        # Build the package
+npm run test         # Run tests
+npm run lint         # Run linter
+npm run type-check   # TypeScript type checking
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**❌ "Token not whitelisted"**
+- Ensure your token is whitelisted in the GaslessRelayer contract
+- Call `gaslessRelayer.whitelistToken(tokenAddress, true)`
+
+**❌ "Insufficient balance"**
+- User needs enough tokens for transfer + fee
+- Check balance with `gasless.getBalance()`
+
+**❌ "Invalid signature"**
+- Check that private key corresponds to token owner
+- Ensure nonce is correct
+
+**❌ "Contract paused"**
+- GaslessRelayer contract is paused
+- Call `gaslessRelayer.unpause()` as owner
+
+### Debug Mode
+
+Enable detailed logging:
+
+```typescript
+// Check token whitelist status
+const tokenInfo = await gasless.getTokenInfo(tokenAddress)
+console.log('Token whitelisted:', tokenInfo.isWhitelisted)
+
+// Check user nonce (for debugging)
+import { GaslessSDK } from 'gasless-core'
+const sdk = new GaslessSDK(config, publicClient)
+const nonce = await sdk.getUserNonce(userAddress)
+console.log('User nonce:', nonce)
+```
 
 ## Requirements
 
 - Node.js >= 16.0.0
 - TypeScript >= 5.0.0
-- Viem >= 1.19.9
-
-## Contributing
-
-This project is in early development. Contributions are welcome but please be aware that the API may change significantly.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## Testing
-
-```bash
-npm test          # Run tests
-npm run test:watch # Run tests in watch mode
-npm run lint      # Run linter
-npm run type-check # Run TypeScript compiler
-```
+- Deployed GaslessRelayer smart contract
+- Relayer service endpoint (or private key for direct execution)
 
 ## License
 
@@ -225,9 +330,9 @@ MIT
 
 ## Support
 
-- GitHub Issues: [Report bugs or request features](https://github.com/MrRaccxxn)
+- GitHub Issues: [Report bugs or request features](https://github.com/MrRaccxxn/gasless-sdk)
 - Email: buildraccoon@gmail.com
 
 ---
 
-**Note**: This package is designed specifically for the Mantle EVM ecosystem. For other EVM chains, configuration adjustments may be required.
+**Ready to test?** Deploy your `GaslessRelayer.sol` contract, set up a simple relayer service, and start making gasless transfers! 🚀

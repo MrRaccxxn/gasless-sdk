@@ -64,7 +64,9 @@
   },
   "dependencies": {
     "ethers": "^6.8.1",
-    "viem": "^1.19.9"
+    "viem": "^2.17.0",
+    "permissionless": "^0.1.44",
+    "@account-abstraction/contracts": "^0.7.0"
   },
   "engines": {
     "node": ">=16.0.0"

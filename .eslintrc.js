@@ -23,5 +23,13 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'error',
     'no-console': 'warn',
   },
+  overrides: [
+    {
+      files: ['**/__tests__/**/*.ts', '**/*.test.ts', '**/*.spec.ts'],
+      rules: {
+        '@typescript-eslint/no-explicit-any': 'off',
+      },
+    },
+  ],
   ignorePatterns: ['dist/', 'node_modules/', '*.js'],
 }

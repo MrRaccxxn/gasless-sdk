@@ -3,8 +3,10 @@ import type { Address, Hash, Hex } from 'viem'
 export interface GaslessConfig {
   readonly chainId: number
   readonly rpcUrl: string
-  readonly relayerUrl: string
-  readonly forwarderAddress: Address
+  readonly gaslessRelayerAddress: Address
+  readonly relayerPrivateKey?: Hex
+  readonly relayerServiceUrl?: string
+  readonly apiKey?: string
 }
 
 export interface TokenInfo {
@@ -12,35 +14,40 @@ export interface TokenInfo {
   readonly name: string
   readonly symbol: string
   readonly decimals: number
+  readonly isWhitelisted: boolean
 }
 
-export interface MetaTransactionRequest {
-  readonly from: Address
-  readonly to: Address
-  readonly value: bigint
-  readonly gas: bigint
+export interface MetaTransfer {
+  readonly owner: Address
+  readonly token: Address
+  readonly recipient: Address
+  readonly amount: bigint
+  readonly fee: bigint
   readonly nonce: bigint
-  readonly data: Hex
+  readonly deadline: bigint
 }
 
-export interface PermitSignature {
+export interface PermitData {
+  readonly value: bigint
+  readonly deadline: bigint
   readonly v: number
   readonly r: Hex
   readonly s: Hex
-  readonly deadline: bigint
 }
 
 export interface GaslessTransferParams {
   readonly token: Address
   readonly to: Address
   readonly amount: bigint
-  readonly userAddress: Address
+  readonly fee?: bigint
+  readonly deadline?: bigint
 }
 
 export interface TransactionResult {
   readonly hash: Hash
   readonly success: boolean
   readonly gasUsed?: bigint
+  readonly metaTxHash?: Hex
 }
 
 export interface EIP712Domain {
@@ -48,6 +55,41 @@ export interface EIP712Domain {
   readonly version: string
   readonly chainId: number
   readonly verifyingContract: Address
+}
+
+export interface EIP712MetaTransfer {
+  readonly owner: Address
+  readonly token: Address
+  readonly recipient: Address
+  readonly amount: bigint
+  readonly fee: bigint
+  readonly deadline: bigint
+  readonly nonce: bigint
+}
+
+export interface EIP2612Permit {
+  readonly owner: Address
+  readonly spender: Address
+  readonly value: bigint
+  readonly nonce: bigint
+  readonly deadline: bigint
+}
+
+export interface SignatureData {
+  readonly v: number
+  readonly r: Hex
+  readonly s: Hex
+}
+
+export interface ContractLimits {
+  readonly maxTransferAmount: bigint
+  readonly maxFeeAmount: bigint
+}
+
+export interface GaslessTransferRequest {
+  readonly metaTx: MetaTransfer
+  readonly permitData: PermitData
+  readonly signature: Hex
 }
 
 export interface ForwardRequest {
@@ -59,10 +101,11 @@ export interface ForwardRequest {
   readonly data: Hex
 }
 
-export interface PermitData {
-  readonly owner: Address
-  readonly spender: Address
+export interface MetaTransactionRequest {
+  readonly from: Address
+  readonly to: Address
   readonly value: bigint
+  readonly gas: bigint
   readonly nonce: bigint
-  readonly deadline: bigint
+  readonly data: Hex
 }
