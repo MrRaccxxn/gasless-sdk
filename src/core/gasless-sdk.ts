@@ -224,9 +224,35 @@ export class GaslessSDK {
       Promise.resolve(createMetaTransferHash(relayerDomain, metaTx)),
     ])
 
-    const metaTxSignature = await this._walletClient.signMessage({
+    const metaTxSignature = await this._walletClient.signTypedData({
       account: this._walletClient.account,
-      message: { raw: metaTxHash },
+      domain: {
+        name: relayerDomain.name,
+        version: relayerDomain.version,
+        chainId: relayerDomain.chainId,
+        verifyingContract: relayerDomain.verifyingContract,
+      },
+      types: {
+        MetaTransfer: [
+          { name: 'owner', type: 'address' },
+          { name: 'token', type: 'address' },
+          { name: 'recipient', type: 'address' },
+          { name: 'amount', type: 'uint256' },
+          { name: 'fee', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
+          { name: 'nonce', type: 'uint256' },
+        ],
+      },
+      primaryType: 'MetaTransfer',
+      message: {
+        owner: metaTx.owner,
+        token: metaTx.token,
+        recipient: metaTx.recipient,
+        amount: metaTx.amount,
+        fee: metaTx.fee,
+        deadline: metaTx.deadline,
+        nonce: metaTx.nonce,
+      },
     })
 
     // Log environment for debugging
