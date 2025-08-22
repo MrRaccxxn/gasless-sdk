@@ -166,26 +166,28 @@ export class GaslessSDK {
     }
 
     // Get the current account from MetaMask to ensure we have the right one
-    const currentAccounts = await window.ethereum.request({
-      method: 'eth_accounts',
-    })
-    const currentAccount = currentAccounts[0] as Address
+    if (typeof window !== 'undefined' && window.ethereum) {
+      const currentAccounts = await window.ethereum.request({
+        method: 'eth_accounts',
+      })
+      const currentAccount = currentAccounts[0] as Address
 
-    // Update the wallet client account if it has changed
-    if (
-      currentAccount &&
-      currentAccount !== this._walletClient.account.address
-    ) {
-      console.log(
-        `🔄 Account changed from ${this._walletClient.account.address} to ${currentAccount}`
-      )
-      this._walletClient = {
-        ...this._walletClient,
-        account: { address: currentAccount },
-      } as WalletClient
+      // Update the wallet client account if it has changed
+      if (
+        currentAccount &&
+        currentAccount !== this._walletClient.account?.address
+      ) {
+        console.log(
+          `🔄 Account changed from ${this._walletClient.account?.address} to ${currentAccount}`
+        )
+        this._walletClient = {
+          ...this._walletClient,
+          account: { address: currentAccount },
+        } as WalletClient
+      }
     }
 
-    const userAddress = this._walletClient.account.address
+    const userAddress = this._walletClient.account!.address
     // Use a longer deadline window to avoid timing issues
     const deadline =
       params.deadline || BigInt(Math.floor(Date.now() / 1000) + 7200) // 2 hours instead of 1
@@ -245,7 +247,7 @@ export class GaslessSDK {
     ])
 
     // Check wallet chain ID vs SDK config
-    const walletChainId = await this._walletClient.getChainId()
+    const walletChainId = this._walletClient?.getChainId ? await this._walletClient.getChainId() : this.config.chainId
 
     // Debug logging for EIP-712 data
     console.log('🔍 SDK EIP-712 Debug - SIGNING VALUES:', {
@@ -270,7 +272,7 @@ export class GaslessSDK {
         deadline: typeof metaTx.deadline,
         nonce: typeof metaTx.nonce,
       },
-      userAddress: this._walletClient.account.address,
+      userAddress: this._walletClient.account!.address,
       walletChainId,
       configChainId: this.config.chainId,
       chainIdMatch: walletChainId === this.config.chainId,
@@ -286,7 +288,7 @@ export class GaslessSDK {
     }
 
     const metaTxSignature = await this._walletClient.signTypedData({
-      account: this._walletClient.account,
+      account: this._walletClient.account!,
       domain: {
         name: relayerDomain.name,
         version: relayerDomain.version,
@@ -436,22 +438,24 @@ export class GaslessSDK {
     }
 
     try {
-      const userAddress = this._walletClient.account.address
+      const userAddress = this._walletClient.account!.address
       const timestamp = Math.floor(Date.now() / 1000)
 
       // Create user signature for additional security
       const authMessage = `Gasless transfer request\nTimestamp: ${timestamp}\nUser: ${userAddress}`
       const userSignature = await this._walletClient.signMessage({
-        account: this._walletClient.account,
+        account: this._walletClient.account!,
         message: authMessage,
       })
 
       const payloadMetaTx = {
-        ...metaTx,
+        owner: metaTx.owner,
+        token: metaTx.token,
+        recipient: metaTx.recipient,
         amount: metaTx.amount.toString(),
         fee: metaTx.fee.toString(),
-        nonce: metaTx.nonce.toString(),
         deadline: metaTx.deadline.toString(),
+        nonce: metaTx.nonce.toString(),
       }
 
       console.log('🔍 SDK EIP-712 Debug - SENDING TO BACKEND:', {

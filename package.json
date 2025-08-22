@@ -27,6 +27,7 @@
     "format:check": "prettier --check \"src/**/*.{ts,tsx,json}\"",
     "test": "jest",
     "test:watch": "jest --watch",
+    "test:eip712": "jest src/__tests__/eip712-validation.test.ts",
     "clean": "rimraf dist",
     "start:relayer": "node examples/backend-relayer-service.js",
     "prepublishOnly": "npm run clean && npm run build"
