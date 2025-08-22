@@ -1,6 +1,6 @@
 {
   "name": "gasless-core",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "author": "MrRaccxxn <buildraccoon@gmail.com> (https://github.com/MrRaccxxn)",
   "description": "A TypeScript SDK for enabling gasless token transfers on Mantle EVM using meta-transactions and permit-based approvals",
   "main": "./dist/index.js",
