@@ -35,8 +35,8 @@ export interface MetaTransfer {
   readonly recipient: Address
   readonly amount: bigint
   readonly fee: bigint
-  readonly nonce: bigint
   readonly deadline: bigint
+  readonly nonce: bigint
 }
 
 export interface PermitData {

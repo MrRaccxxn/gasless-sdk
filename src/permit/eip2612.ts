@@ -123,6 +123,57 @@ export async function getTokenNonce(
   }
 }
 
+export async function getTokenVersion(
+  tokenAddress: Address,
+  publicClient: PublicClient
+): Promise<string> {
+  try {
+    const result = await publicClient.readContract({
+      address: tokenAddress,
+      abi: [
+        {
+          name: 'version',
+          type: 'function',
+          stateMutability: 'view',
+          inputs: [],
+          outputs: [{ name: '', type: 'string' }],
+        },
+      ],
+      functionName: 'version',
+    })
+    return result as string
+  } catch (error) {
+    // Fallback: try to get it from eip712Domain()
+    try {
+      const domain = await publicClient.readContract({
+        address: tokenAddress,
+        abi: [
+          {
+            name: 'eip712Domain',
+            type: 'function',
+            stateMutability: 'view',
+            inputs: [],
+            outputs: [
+              { name: 'fields', type: 'bytes1' },
+              { name: 'name', type: 'string' },
+              { name: 'version', type: 'string' },
+              { name: 'chainId', type: 'uint256' },
+              { name: 'verifyingContract', type: 'address' },
+              { name: 'salt', type: 'bytes32' },
+              { name: 'extensions', type: 'uint256[]' },
+            ],
+          },
+        ],
+        functionName: 'eip712Domain',
+      })
+      return (domain as any)[2] // version is at index 2
+    } catch {
+      // Final fallback - try common versions
+      return '1'
+    }
+  }
+}
+
 export async function getTokenInfo(
   tokenAddress: Address,
   publicClient: PublicClient

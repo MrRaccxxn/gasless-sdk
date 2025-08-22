@@ -27,6 +27,7 @@ import {
   createPermitDomain,
   getTokenInfo,
   getTokenNonce,
+  getTokenVersion,
 } from '../permit/eip2612'
 import { getChainConfig } from '../config/chains'
 import gaslessAbi from '../../abi/gasless.json'
@@ -54,17 +55,21 @@ export class GaslessSDK {
 
   private resolveConfig(config: GaslessConfig): ResolvedConfig {
     const environment = config.environment ?? 'production'
-    
+
     if (config.chainPreset) {
       const chainConfig = getChainConfig(config.chainPreset, environment)
-      
+
       // Handle custom local URL override
-      let relayerServiceUrl = config.relayerServiceUrl ?? config.localRelayerUrl ?? chainConfig.relayerServiceUrl
-      
+      let relayerServiceUrl =
+        config.relayerServiceUrl ??
+        config.localRelayerUrl ??
+        chainConfig.relayerServiceUrl
+
       const result: ResolvedConfig = {
         chainId: config.chainId ?? chainConfig.chainId,
         rpcUrl: config.rpcUrl ?? chainConfig.rpcUrl,
-        gaslessRelayerAddress: config.gaslessRelayerAddress ?? chainConfig.gaslessRelayerAddress,
+        gaslessRelayerAddress:
+          config.gaslessRelayerAddress ?? chainConfig.gaslessRelayerAddress,
         relayerServiceUrl,
         environment,
       }
@@ -72,14 +77,17 @@ export class GaslessSDK {
     }
 
     if (!config.chainId || !config.rpcUrl || !config.gaslessRelayerAddress) {
-      throw new Error('When not using a preset, chainId, rpcUrl, and gaslessRelayerAddress are required')
+      throw new Error(
+        'When not using a preset, chainId, rpcUrl, and gaslessRelayerAddress are required'
+      )
     }
 
     const result: ResolvedConfig = {
       chainId: config.chainId,
       rpcUrl: config.rpcUrl,
       gaslessRelayerAddress: config.gaslessRelayerAddress,
-      relayerServiceUrl: config.relayerServiceUrl ?? config.localRelayerUrl ?? '',
+      relayerServiceUrl:
+        config.relayerServiceUrl ?? config.localRelayerUrl ?? '',
       environment,
     }
     return result
@@ -91,15 +99,17 @@ export class GaslessSDK {
 
   public async connectWallet(): Promise<Address> {
     if (typeof window === 'undefined' || !window.ethereum) {
-      throw new Error('MetaMask or compatible wallet not found. Please install a wallet extension.')
+      throw new Error(
+        'MetaMask or compatible wallet not found. Please install a wallet extension.'
+      )
     }
 
     const { createWalletClient, custom } = await import('viem')
-    
+
     try {
       // Request account access
       await window.ethereum.request({ method: 'eth_requestAccounts' })
-      
+
       // Create wallet client from window.ethereum
       const walletClient = createWalletClient({
         transport: custom(window.ethereum),
@@ -125,7 +135,9 @@ export class GaslessSDK {
     }
   }
 
-  public async transfer(params: SimpleTransferParams): Promise<TransactionResult> {
+  public async transfer(
+    params: SimpleTransferParams
+  ): Promise<TransactionResult> {
     return this.transferGasless({
       token: params.token,
       to: params.to,
@@ -158,10 +170,11 @@ export class GaslessSDK {
       params.deadline || BigInt(Math.floor(Date.now() / 1000) + 3600)
     const fee = params.fee || 0n
 
-    const [userNonce, tokenNonce, tokenInfo] = await Promise.all([
+    const [userNonce, tokenNonce, tokenInfo, tokenVersion] = await Promise.all([
       this.getUserNonce(userAddress),
       getTokenNonce(params.token, userAddress, this._publicClient),
       getTokenInfo(params.token, this._publicClient),
+      getTokenVersion(params.token, this._publicClient),
     ])
 
     const metaTx: MetaTransfer = {
@@ -170,8 +183,8 @@ export class GaslessSDK {
       recipient: params.to,
       amount: params.amount,
       fee,
-      nonce: userNonce,
       deadline,
+      nonce: userNonce,
     }
 
     const permitRequest: EIP2612Permit = {
@@ -182,10 +195,21 @@ export class GaslessSDK {
       deadline,
     }
 
+    // Debug logging for permit domain
+    if (this.config.environment !== 'production') {
+      console.log('🔍 Permit Domain Debug:', {
+        token: params.token,
+        chainId: this.config.chainId,
+        name: tokenInfo.name,
+        version: tokenVersion
+      })
+    }
+
     const permitDomain = createPermitDomain(
       params.token,
       this.config.chainId,
-      tokenInfo.name
+      tokenInfo.name,
+      tokenVersion // Use dynamically detected version
     )
 
     const relayerDomain: EIP712Domain = {
@@ -220,7 +244,6 @@ export class GaslessSDK {
       `No relayer service URL configured for ${this.config.environment} environment. Please ensure your backend relayer service is running.`
     )
   }
-
 
   public async estimateGas(_params: GaslessTransferParams): Promise<bigint> {
     if (!this._walletClient || !this._walletClient.account) {
