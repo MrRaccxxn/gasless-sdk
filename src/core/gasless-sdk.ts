@@ -242,6 +242,11 @@ export class GaslessSDK {
       verifyingContract: this.config.gaslessRelayerAddress,
     }
 
+    // Check and handle token approval automatically (skip in test environments)
+    if (this.config.environment !== 'test' && typeof this._walletClient.writeContract === 'function') {
+      await this.ensureTokenApproval(params.token, userAddress, params.amount + fee)
+    }
+
     const [permitData] = await Promise.all([
       signPermit(this._walletClient, permitDomain, permitRequest),
     ])
@@ -263,8 +268,8 @@ export class GaslessSDK {
         recipient: metaTx.recipient,
         amount: metaTx.amount,
         fee: metaTx.fee,
-        deadline: metaTx.deadline,
         nonce: metaTx.nonce,
+        deadline: metaTx.deadline,
       },
       messageTypes: {
         amount: typeof metaTx.amount,
@@ -302,8 +307,8 @@ export class GaslessSDK {
           { name: 'recipient', type: 'address' },
           { name: 'amount', type: 'uint256' },
           { name: 'fee', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' },
           { name: 'nonce', type: 'uint256' },
+          { name: 'deadline', type: 'uint256' },
         ],
       },
       primaryType: 'MetaTransfer',
@@ -313,8 +318,8 @@ export class GaslessSDK {
         recipient: metaTx.recipient,
         amount: metaTx.amount,
         fee: metaTx.fee,
-        deadline: metaTx.deadline,
         nonce: metaTx.nonce,
+        deadline: metaTx.deadline,
       },
     })
 
@@ -513,5 +518,213 @@ export class GaslessSDK {
 
   public getConfig(): ResolvedConfig {
     return { ...this.config }
+  }
+
+  /**
+   * Manually approve a token for gasless transfers
+   * This is useful if you want to handle approval separately
+   */
+  public async approveToken(
+    tokenAddress: Address,
+    amount?: bigint
+  ): Promise<string> {
+    if (!this._walletClient || !this._walletClient.account) {
+      throw new Error('Wallet client not set or no account available')
+    }
+
+    const userAddress = this._walletClient.account.address
+    const approvalAmount = amount || BigInt('1000000000000000000000000') // Default large amount
+
+    console.log(`📝 Manual token approval:`)
+    console.log(`   Token: ${tokenAddress}`)
+    console.log(`   Spender: ${this.config.gaslessRelayerAddress}`)
+    console.log(`   Amount: ${approvalAmount}`)
+
+    try {
+      const approvalHash = await this._walletClient.writeContract({
+        address: tokenAddress,
+        abi: [
+          {
+            name: 'approve',
+            type: 'function',
+            inputs: [
+              { name: 'spender', type: 'address' },
+              { name: 'amount', type: 'uint256' }
+            ],
+            outputs: [{ name: '', type: 'bool' }]
+          }
+        ] as const,
+        functionName: 'approve',
+        args: [this.config.gaslessRelayerAddress, approvalAmount]
+      } as any)
+
+      console.log(`✅ Token approval transaction: ${approvalHash}`)
+      return approvalHash
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Token approval failed: ${error.message}`)
+      }
+      throw new Error('Token approval failed: Unknown error')
+    }
+  }
+
+  /**
+   * Check the current token allowance for gasless transfers
+   */
+  public async getTokenAllowance(tokenAddress: Address): Promise<bigint> {
+    if (!this._walletClient || !this._walletClient.account) {
+      throw new Error('Wallet client not set or no account available')
+    }
+
+    const userAddress = this._walletClient.account.address
+
+    try {
+      const allowance = await this._publicClient.readContract({
+        address: tokenAddress,
+        abi: [
+          {
+            name: 'allowance',
+            type: 'function',
+            inputs: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' }
+            ],
+            outputs: [{ name: '', type: 'uint256' }]
+          }
+        ],
+        functionName: 'allowance',
+        args: [userAddress, this.config.gaslessRelayerAddress]
+      }) as bigint
+
+      return allowance
+    } catch (error) {
+      throw new Error(
+        `Failed to get token allowance: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
+  }
+
+  /**
+   * Ensures the token has sufficient allowance for the gasless contract
+   * If not, prompts user to approve the token
+   */
+  private async ensureTokenApproval(
+    tokenAddress: Address,
+    userAddress: Address,
+    requiredAmount: bigint
+  ): Promise<void> {
+    if (!this._walletClient || !this._walletClient.account) {
+      throw new Error('Wallet client not available for token approval')
+    }
+
+    try {
+      // Check current allowance
+      const currentAllowance = await this._publicClient.readContract({
+        address: tokenAddress,
+        abi: [
+          {
+            name: 'allowance',
+            type: 'function',
+            inputs: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' }
+            ],
+            outputs: [{ name: '', type: 'uint256' }]
+          }
+        ],
+        functionName: 'allowance',
+        args: [userAddress, this.config.gaslessRelayerAddress]
+      }) as bigint
+
+      console.log(`🔍 Token allowance check:`)
+      console.log(`   Current allowance: ${currentAllowance}`)
+      console.log(`   Required amount: ${requiredAmount}`)
+
+      // If allowance is sufficient, return early
+      if (currentAllowance >= requiredAmount) {
+        console.log(`✅ Token allowance is sufficient`)
+        return
+      }
+
+      // Calculate approval amount (use a large amount to avoid frequent approvals)
+      const approvalAmount = requiredAmount * 1000n // 1000x the required amount
+      
+      console.log(`📝 Token approval required:`)
+      console.log(`   Token: ${tokenAddress}`)
+      console.log(`   Spender: ${this.config.gaslessRelayerAddress}`)
+      console.log(`   Amount: ${approvalAmount}`)
+
+      // Request token approval from user
+      const approvalHash = await this._walletClient.writeContract({
+        address: tokenAddress,
+        abi: [
+          {
+            name: 'approve',
+            type: 'function',
+            inputs: [
+              { name: 'spender', type: 'address' },
+              { name: 'amount', type: 'uint256' }
+            ],
+            outputs: [{ name: '', type: 'bool' }]
+          }
+        ] as const,
+        functionName: 'approve',
+        args: [this.config.gaslessRelayerAddress, approvalAmount]
+      } as any)
+
+      console.log(`⏳ Token approval transaction: ${approvalHash}`)
+      console.log(`⏳ Waiting for approval confirmation...`)
+
+      // Wait for the approval transaction to be mined
+      // We'll use a simple polling approach
+      let confirmed = false
+      let attempts = 0
+      const maxAttempts = 30 // 30 seconds max wait
+
+      while (!confirmed && attempts < maxAttempts) {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+        
+        try {
+          const newAllowance = await this._publicClient.readContract({
+            address: tokenAddress,
+            abi: [
+              {
+                name: 'allowance',
+                type: 'function',
+                inputs: [
+                  { name: 'owner', type: 'address' },
+                  { name: 'spender', type: 'address' }
+                ],
+                outputs: [{ name: '', type: 'uint256' }]
+              }
+            ],
+            functionName: 'allowance',
+            args: [userAddress, this.config.gaslessRelayerAddress]
+          }) as bigint
+
+          if (newAllowance >= requiredAmount) {
+            confirmed = true
+            console.log(`✅ Token approval confirmed! New allowance: ${newAllowance}`)
+          }
+        } catch (error) {
+          // Continue polling
+        }
+        
+        attempts++
+      }
+
+      if (!confirmed) {
+        throw new Error('Token approval confirmation timed out. Please try again.')
+      }
+
+    } catch (error) {
+      if (error instanceof Error) {
+        if (error.message.includes('User rejected')) {
+          throw new Error('Token approval was rejected by user. Gasless transfer cannot proceed without token approval.')
+        }
+        throw new Error(`Token approval failed: ${error.message}`)
+      }
+      throw new Error('Token approval failed: Unknown error')
+    }
   }
 }

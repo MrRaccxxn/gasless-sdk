@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Direct Gasless Transfer</title>
+    <script src="https://unpkg.com/viem@2.17.0/dist/index.umd.js"></script>
+</head>
+<body>
+    <h1>Direct Contract Call (Skip Backend)</h1>
+    <button onclick="executeTransfer()">Execute Transfer</button>
+    <div id="result"></div>
+
+    <script>
+        async function executeTransfer() {
+            try {
+                const result = document.getElementById('result');
+                result.innerHTML = 'Connecting to wallet...';
+
+                // Connect to MetaMask
+                const client = viem.createWalletClient({
+                    transport: viem.custom(window.ethereum)
+                });
+
+                const [account] = await client.requestAddresses();
+                result.innerHTML = `Connected: ${account}<br>Executing transfer...`;
+
+                // Direct contract call with known working parameters
+                const hash = await client.writeContract({
+                    address: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9', // Your contract
+                    abi: [{
+                        name: 'executeMetaTransfer',
+                        type: 'function',
+                        inputs: [
+                            {
+                                name: 'metaTx',
+                                type: 'tuple',
+                                components: [
+                                    { name: 'owner', type: 'address' },
+                                    { name: 'token', type: 'address' },
+                                    { name: 'recipient', type: 'address' },
+                                    { name: 'amount', type: 'uint256' },
+                                    { name: 'fee', type: 'uint256' },
+                                    { name: 'nonce', type: 'uint256' },
+                                    { name: 'deadline', type: 'uint256' }
+                                ]
+                            },
+                            {
+                                name: 'permitData',
+                                type: 'tuple',
+                                components: [
+                                    { name: 'value', type: 'uint256' },
+                                    { name: 'deadline', type: 'uint256' },
+                                    { name: 'v', type: 'uint8' },
+                                    { name: 'r', type: 'bytes32' },
+                                    { name: 's', type: 'bytes32' }
+                                ]
+                            },
+                            { name: 'signature', type: 'bytes' }
+                        ],
+                        outputs: []
+                    }],
+                    functionName: 'executeMetaTransfer',
+                    args: [
+                        // Use the exact decoded data that was working
+                        {
+                            owner: '0x3ea837526e43c828433fdde7a5a46d71b54e765b',
+                            token: '0x0a527504d9bc26189a51db8a7d6957d1c4275e05',
+                            recipient: '0x5a63721c458f41cd99499857c1fe4b17b2582bb7',
+                            amount: 1000000n,
+                            fee: 0n,
+                            nonce: 0n,
+                            deadline: BigInt(Math.floor(Date.now() / 1000) + 3600) // 1 hour from now
+                        },
+                        {
+                            value: 1000000n,
+                            deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
+                            v: 27,
+                            r: '0x3b95d9f1ce4fa3aa198c943b25dc04a1d67a434b6ce1525ec8d0eb1b7e0213d5',
+                            s: '0x72fc2357d34353c7c3835d29b3b709fbd414bd90fc99005c2e31997d57810f9d'
+                        },
+                        '0x083300b3882ca6c8775738d7679fd70090867ebb35b5574763726b133c730c53654d3cd50febbc3473e06cbe07e08ae9f692c0e247ec0a636cceee8a3830f5b41c'
+                    ],
+                    account
+                });
+
+                result.innerHTML = `✅ Success! Transaction: ${hash}`;
+            } catch (error) {
+                document.getElementById('result').innerHTML = `❌ Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>

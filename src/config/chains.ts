@@ -5,6 +5,7 @@ interface EnvironmentUrls {
   readonly staging: string
   readonly development: string
   readonly local: string
+  readonly test: string
 }
 
 // Environment-specific relayer service URLs
@@ -14,6 +15,7 @@ const RELAYER_URLS: Record<ChainPreset, EnvironmentUrls> = {
     staging: 'https://gasless-relayer-sepolia-staging.mantle.com',
     development: 'https://gasless-relayer-sepolia-dev.mantle.com',
     local: 'http://localhost:3001',
+    test: 'http://localhost:3001',
   },
 }
 

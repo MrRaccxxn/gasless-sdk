@@ -9,7 +9,7 @@ export interface ChainConfig {
   readonly relayerServiceUrl: string
 }
 
-export type Environment = 'local' | 'development' | 'staging' | 'production'
+export type Environment = 'local' | 'development' | 'staging' | 'production' | 'test'
 
 export interface GaslessConfig {
   readonly chainPreset?: ChainPreset
