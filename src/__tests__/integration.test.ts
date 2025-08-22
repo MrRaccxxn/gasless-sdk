@@ -94,8 +94,8 @@ describe('Gasless SDK Integration Tests', () => {
       expect(result.metaTxHash).toBeDefined()
 
       // Verify all signatures were called
-      expect(mockWalletClient.signTypedData).toHaveBeenCalledTimes(1)
-      expect(mockWalletClient.signMessage).toHaveBeenCalledTimes(2) // permit + auth signature
+      expect(mockWalletClient.signTypedData).toHaveBeenCalledTimes(2) // permit + MetaTransfer signature
+      expect(mockWalletClient.signMessage).toHaveBeenCalledTimes(1) // auth signature
       expect(fetch).toHaveBeenCalledTimes(1)
     })
 
