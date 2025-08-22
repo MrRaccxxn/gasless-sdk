@@ -28,6 +28,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "clean": "rimraf dist",
+    "start:relayer": "node examples/backend-relayer-service.js",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "keywords": [

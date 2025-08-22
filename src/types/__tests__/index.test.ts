@@ -27,16 +27,15 @@ describe('Types', () => {
       expect(config.rpcUrl).toBe('https://rpc.mantle.xyz')
     })
 
-    it('should accept GaslessConfig with optional relayer key', () => {
-      const configWithKey: GaslessConfig = {
-        chainId: 5000,
-        rpcUrl: 'https://rpc.mantle.xyz',
-        gaslessRelayerAddress: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-        relayerPrivateKey:
-          '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+    it('should accept GaslessConfig with environment setting', () => {
+      const configWithEnv: GaslessConfig = {
+        chainPreset: 'mantle-sepolia',
+        environment: 'development',
+        localRelayerUrl: 'http://localhost:8080',
       }
 
-      expect(configWithKey.relayerPrivateKey).toBeDefined()
+      expect(configWithEnv.environment).toBe('development')
+      expect(configWithEnv.localRelayerUrl).toBeDefined()
     })
 
     it('should accept valid TokenInfo', () => {

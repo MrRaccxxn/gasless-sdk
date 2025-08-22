@@ -3,9 +3,14 @@ import {
   type PublicClient,
   type WalletClient,
   type Hex,
+  createPublicClient,
+  http,
 } from 'viem'
 import type {
+  ChainPreset,
+  ChainConfig,
   GaslessConfig,
+  SimpleTransferParams,
   GaslessTransferParams,
   TransactionResult,
   TokenInfo,
@@ -14,6 +19,7 @@ import type {
   EIP712Domain,
   EIP2612Permit,
   ContractLimits,
+  Environment,
 } from '../types'
 import { createMetaTransferHash } from '../eip712'
 import {
@@ -22,20 +28,109 @@ import {
   getTokenInfo,
   getTokenNonce,
 } from '../permit/eip2612'
+import { getChainConfig } from '../config/chains'
 import gaslessAbi from '../../abi/gasless.json'
 
+interface ResolvedConfig {
+  chainId: number
+  rpcUrl: string
+  gaslessRelayerAddress: Address
+  relayerServiceUrl: string
+  environment: Environment
+}
+
 export class GaslessSDK {
-  private readonly config: GaslessConfig
+  private readonly config: ResolvedConfig
   private readonly _publicClient: PublicClient
   private _walletClient: WalletClient | null = null
 
-  constructor(config: GaslessConfig, publicClient: PublicClient) {
-    this.config = config
-    this._publicClient = publicClient
+  constructor(config: GaslessConfig) {
+    const resolvedConfig = this.resolveConfig(config)
+    this.config = resolvedConfig
+    this._publicClient = createPublicClient({
+      transport: http(resolvedConfig.rpcUrl),
+    })
+  }
+
+  private resolveConfig(config: GaslessConfig): ResolvedConfig {
+    const environment = config.environment ?? 'production'
+    
+    if (config.chainPreset) {
+      const chainConfig = getChainConfig(config.chainPreset, environment)
+      
+      // Handle custom local URL override
+      let relayerServiceUrl = config.relayerServiceUrl ?? config.localRelayerUrl ?? chainConfig.relayerServiceUrl
+      
+      const result: ResolvedConfig = {
+        chainId: config.chainId ?? chainConfig.chainId,
+        rpcUrl: config.rpcUrl ?? chainConfig.rpcUrl,
+        gaslessRelayerAddress: config.gaslessRelayerAddress ?? chainConfig.gaslessRelayerAddress,
+        relayerServiceUrl,
+        environment,
+      }
+      return result
+    }
+
+    if (!config.chainId || !config.rpcUrl || !config.gaslessRelayerAddress) {
+      throw new Error('When not using a preset, chainId, rpcUrl, and gaslessRelayerAddress are required')
+    }
+
+    const result: ResolvedConfig = {
+      chainId: config.chainId,
+      rpcUrl: config.rpcUrl,
+      gaslessRelayerAddress: config.gaslessRelayerAddress,
+      relayerServiceUrl: config.relayerServiceUrl ?? config.localRelayerUrl ?? '',
+      environment,
+    }
+    return result
   }
 
   public setWalletClient(walletClient: WalletClient): void {
     this._walletClient = walletClient
+  }
+
+  public async connectWallet(): Promise<Address> {
+    if (typeof window === 'undefined' || !window.ethereum) {
+      throw new Error('MetaMask or compatible wallet not found. Please install a wallet extension.')
+    }
+
+    const { createWalletClient, custom } = await import('viem')
+    
+    try {
+      // Request account access
+      await window.ethereum.request({ method: 'eth_requestAccounts' })
+      
+      // Create wallet client from window.ethereum
+      const walletClient = createWalletClient({
+        transport: custom(window.ethereum),
+      })
+
+      // Get the connected account
+      const [account] = await walletClient.getAddresses()
+      if (!account) {
+        throw new Error('No account found. Please connect your wallet.')
+      }
+
+      // Set the wallet client with the connected account
+      this._walletClient = {
+        ...walletClient,
+        account: { address: account },
+      } as WalletClient
+
+      return account
+    } catch (error) {
+      throw new Error(
+        `Failed to connect wallet: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
+  }
+
+  public async transfer(params: SimpleTransferParams): Promise<TransactionResult> {
+    return this.transferGasless({
+      token: params.token,
+      to: params.to,
+      amount: params.amount,
+    })
   }
 
   public async getTokenInfo(tokenAddress: Address): Promise<TokenInfo> {
@@ -110,47 +205,22 @@ export class GaslessSDK {
       message: { raw: metaTxHash },
     })
 
-    if (this.config.relayerPrivateKey) {
-      return this.executeTransferDirectly(metaTx, permitData, metaTxSignature)
+    // Log environment for debugging
+    if (this.config.environment !== 'production') {
+      console.log(`🔧 Gasless SDK running in ${this.config.environment} mode`)
+      console.log(`📡 Relayer URL: ${this.config.relayerServiceUrl}`)
     }
 
-    if (this.config.relayerServiceUrl) {
+    // Always use backend service - this is the secure way
+    if (this.config.relayerServiceUrl && this.config.relayerServiceUrl !== '') {
       return this.executeTransferViaService(metaTx, permitData, metaTxSignature)
     }
 
     throw new Error(
-      'Either relayerPrivateKey or relayerServiceUrl must be provided'
+      `No relayer service URL configured for ${this.config.environment} environment. Please ensure your backend relayer service is running.`
     )
   }
 
-  private async executeTransferDirectly(
-    metaTx: MetaTransfer,
-    permitData: PermitData,
-    signature: Hex
-  ): Promise<TransactionResult> {
-    if (!this.config.relayerPrivateKey) {
-      throw new Error('Relayer private key required for direct execution')
-    }
-
-    try {
-      await this._publicClient.simulateContract({
-        address: this.config.gaslessRelayerAddress,
-        abi: gaslessAbi,
-        functionName: 'executeMetaTransfer',
-        args: [metaTx, permitData, signature],
-      })
-
-      return {
-        hash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        success: true,
-        metaTxHash: signature,
-      }
-    } catch (error) {
-      throw new Error(
-        `Transaction simulation failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-      )
-    }
-  }
 
   public async estimateGas(_params: GaslessTransferParams): Promise<bigint> {
     if (!this._walletClient || !this._walletClient.account) {
@@ -272,12 +342,22 @@ export class GaslessSDK {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(this.config.apiKey && { 'X-API-Key': this.config.apiKey }),
           },
           body: JSON.stringify({
-            metaTx,
-            permitData,
+            metaTx: {
+              ...metaTx,
+              amount: metaTx.amount.toString(),
+              fee: metaTx.fee.toString(),
+              nonce: metaTx.nonce.toString(),
+              deadline: metaTx.deadline.toString(),
+            },
+            permitData: {
+              ...permitData,
+              value: permitData.value.toString(),
+              deadline: permitData.deadline.toString(),
+            },
             signature,
+            chainId: this.config.chainId,
             userAddress,
             timestamp,
             userSignature,
@@ -304,7 +384,7 @@ export class GaslessSDK {
     }
   }
 
-  public getConfig(): GaslessConfig {
+  public getConfig(): ResolvedConfig {
     return { ...this.config }
   }
 }

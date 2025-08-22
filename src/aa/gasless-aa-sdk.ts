@@ -69,6 +69,42 @@ export class GaslessAASDK {
     this.walletClient = walletClient
   }
 
+  public async connectWallet(): Promise<Address> {
+    if (typeof window === 'undefined' || !window.ethereum) {
+      throw new Error('MetaMask or compatible wallet not found. Please install a wallet extension.')
+    }
+
+    const { createWalletClient, custom } = await import('viem')
+    
+    try {
+      // Request account access
+      await window.ethereum.request({ method: 'eth_requestAccounts' })
+      
+      // Create wallet client from window.ethereum
+      const walletClient = createWalletClient({
+        transport: custom(window.ethereum),
+      })
+
+      // Get the connected account
+      const [account] = await walletClient.getAddresses()
+      if (!account) {
+        throw new Error('No account found. Please connect your wallet.')
+      }
+
+      // Set the wallet client with the connected account
+      this.walletClient = {
+        ...walletClient,
+        account: { address: account },
+      } as WalletClient
+
+      return account
+    } catch (error) {
+      throw new Error(
+        `Failed to connect wallet: ${error instanceof Error ? error.message : 'Unknown error'}`
+      )
+    }
+  }
+
   // Get or create smart account for user
   async getSmartAccountInfo(salt: bigint = 0n): Promise<SmartAccountInfo> {
     if (!this.walletClient?.account) {

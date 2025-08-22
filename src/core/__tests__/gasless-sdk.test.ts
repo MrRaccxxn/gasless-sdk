@@ -2,15 +2,17 @@ import { GaslessSDK } from '../gasless-sdk'
 import type { GaslessConfig, GaslessTransferParams } from '../../types'
 
 // Mock the contract calls
+const mockPublicClient = {
+  readContract: jest.fn(),
+  simulateContract: jest.fn(),
+  estimateContractGas: jest.fn(),
+}
+
 jest.mock('viem', () => {
   const actual = jest.requireActual('viem')
   return {
     ...actual,
-    createPublicClient: jest.fn(() => ({
-      readContract: jest.fn(),
-      simulateContract: jest.fn(),
-      estimateContractGas: jest.fn(),
-    })),
+    createPublicClient: jest.fn(() => mockPublicClient),
     createWalletClient: jest.fn(() => ({
       account: {
         address: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
@@ -18,28 +20,20 @@ jest.mock('viem', () => {
       signTypedData: jest.fn(),
       signMessage: jest.fn(),
     })),
+    http: jest.fn(),
   }
 })
 
 const mockConfig: GaslessConfig = {
-  chainId: 5000,
-  rpcUrl: 'https://rpc.mantle.xyz',
-  gaslessRelayerAddress: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
+  chainPreset: 'mantle-sepolia',
 }
 
 describe('GaslessSDK', () => {
   let sdk: GaslessSDK
-  let mockPublicClient: any
   let mockWalletClient: any
 
   beforeEach(() => {
     jest.clearAllMocks()
-
-    mockPublicClient = {
-      readContract: jest.fn(),
-      simulateContract: jest.fn(),
-      estimateContractGas: jest.fn(),
-    } as any
 
     mockWalletClient = {
       account: {
@@ -49,13 +43,13 @@ describe('GaslessSDK', () => {
       signMessage: jest.fn(),
     } as any
 
-    sdk = new GaslessSDK(mockConfig, mockPublicClient)
+    sdk = new GaslessSDK(mockConfig)
   })
 
   describe('constructor', () => {
     it('should initialize with config and public client', () => {
       expect(sdk).toBeInstanceOf(GaslessSDK)
-      expect(sdk.getConfig()).toEqual(mockConfig)
+      expect(sdk.getConfig().chainId).toBe(5003)
     })
   })
 
@@ -72,9 +66,15 @@ describe('GaslessSDK', () => {
   })
 
   describe('getConfig', () => {
-    it('should return a copy of the config', () => {
+    it('should return a copy of the resolved config', () => {
       const config = sdk.getConfig()
-      expect(config).toEqual(mockConfig)
+      expect(config).toEqual({
+        chainId: 5003,
+        rpcUrl: 'https://rpc.sepolia.mantle.xyz',
+        gaslessRelayerAddress: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
+        relayerServiceUrl: 'https://gasless-relayer-sepolia.mantle.com',
+        environment: 'production'
+      })
       expect(config).not.toBe(mockConfig)
     })
   })
@@ -90,7 +90,7 @@ describe('GaslessSDK', () => {
 
       expect(nonce).toBe(expectedNonce)
       expect(mockPublicClient.readContract).toHaveBeenCalledWith({
-        address: mockConfig.gaslessRelayerAddress,
+        address: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         abi: expect.any(Array),
         functionName: 'getNonce',
         args: ['0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b'],
@@ -118,7 +118,7 @@ describe('GaslessSDK', () => {
 
       expect(isWhitelisted).toBe(true)
       expect(mockPublicClient.readContract).toHaveBeenCalledWith({
-        address: mockConfig.gaslessRelayerAddress,
+        address: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         abi: expect.any(Array),
         functionName: 'isTokenWhitelisted',
         args: ['0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b'],
@@ -162,7 +162,7 @@ describe('GaslessSDK', () => {
 
       expect(isPaused).toBe(false)
       expect(mockPublicClient.readContract).toHaveBeenCalledWith({
-        address: mockConfig.gaslessRelayerAddress,
+        address: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         abi: expect.any(Array),
         functionName: 'paused',
       })
@@ -225,7 +225,7 @@ describe('GaslessSDK', () => {
     })
 
     it('should throw error when wallet client not set', async () => {
-      const sdkWithoutWallet = new GaslessSDK(mockConfig, mockPublicClient)
+      const sdkWithoutWallet = new GaslessSDK(mockConfig)
 
       const params: GaslessTransferParams = {
         token: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
@@ -238,7 +238,7 @@ describe('GaslessSDK', () => {
       )
     })
 
-    it('should throw error when relayer service not implemented', async () => {
+    it('should execute transfer via backend service', async () => {
       // Mock the required contract calls
       mockPublicClient.readContract
         .mockResolvedValueOnce(0n) // user nonce
@@ -254,51 +254,15 @@ describe('GaslessSDK', () => {
         '0x789abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab'
       )
 
-      const params: GaslessTransferParams = {
-        token: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-        to: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-        amount: 1000000n,
-      }
-
-      await expect(sdk.transferGasless(params)).rejects.toThrow(
-        'Either relayerPrivateKey or relayerServiceUrl must be provided'
-      )
-    })
-
-    it('should execute transfer with relayer private key', async () => {
-      const configWithKey: GaslessConfig = {
-        ...mockConfig,
-        relayerPrivateKey:
-          '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      }
-
-      const sdkWithKey = new GaslessSDK(configWithKey, mockPublicClient)
-      sdkWithKey.setWalletClient(mockWalletClient)
-
-      // Mock the required contract calls
-      mockPublicClient.readContract
-        .mockResolvedValueOnce(0n) // user nonce
-        .mockResolvedValueOnce(0n) // token nonce
-        .mockResolvedValueOnce('Test Token') // token name
-        .mockResolvedValueOnce('TEST') // token symbol
-        .mockResolvedValueOnce(18) // token decimals
-
-      mockPublicClient.simulateContract.mockResolvedValue({
-        result: undefined,
-        request: {
-          abi: [],
-          address: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-          functionName: 'executeMetaTransfer',
-          args: [],
-        },
+      // Mock fetch for backend service call
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue({
+          success: true,
+          hash: '0x123456',
+          metaTxHash: '0x789abc',
+        }),
       })
-
-      mockWalletClient.signTypedData.mockResolvedValue(
-        '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1b'
-      )
-      mockWalletClient.signMessage.mockResolvedValue(
-        '0x789abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab'
-      )
 
       const params: GaslessTransferParams = {
         token: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
@@ -306,14 +270,12 @@ describe('GaslessSDK', () => {
         amount: 1000000n,
       }
 
-      const result = await sdkWithKey.transferGasless(params)
+      const result = await sdk.transferGasless(params)
 
-      expect(result).toEqual({
-        hash: '0x0000000000000000000000000000000000000000000000000000000000000000',
-        success: true,
-        metaTxHash:
-          '0x789abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab',
-      })
+      expect(result.success).toBe(true)
+      expect(result.hash).toBe('0x123456')
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
+
   })
 })

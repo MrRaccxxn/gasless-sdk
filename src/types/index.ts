@@ -1,12 +1,24 @@
 import type { Address, Hash, Hex } from 'viem'
 
-export interface GaslessConfig {
+export type ChainPreset = 'mantle-sepolia'
+
+export interface ChainConfig {
   readonly chainId: number
   readonly rpcUrl: string
   readonly gaslessRelayerAddress: Address
-  readonly relayerPrivateKey?: Hex
+  readonly relayerServiceUrl: string
+}
+
+export type Environment = 'local' | 'development' | 'staging' | 'production'
+
+export interface GaslessConfig {
+  readonly chainPreset?: ChainPreset
+  readonly environment?: Environment
+  readonly chainId?: number
+  readonly rpcUrl?: string
+  readonly gaslessRelayerAddress?: Address
   readonly relayerServiceUrl?: string
-  readonly apiKey?: string
+  readonly localRelayerUrl?: string
 }
 
 export interface TokenInfo {
@@ -41,6 +53,12 @@ export interface GaslessTransferParams {
   readonly amount: bigint
   readonly fee?: bigint
   readonly deadline?: bigint
+}
+
+export interface SimpleTransferParams {
+  readonly to: Address
+  readonly amount: bigint
+  readonly token: Address
 }
 
 export interface TransactionResult {

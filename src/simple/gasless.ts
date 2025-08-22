@@ -9,15 +9,17 @@ import {
 } from 'viem'
 import { GaslessSDK } from '../core/gasless-sdk'
 import { GaslessAASDK } from '../aa/gasless-aa-sdk'
-import type { GaslessConfig, TokenInfo } from '../types'
+import type { ChainPreset, GaslessConfig, TokenInfo, Environment } from '../types'
 import type { AAGaslessConfig, AATransferParams } from '../aa/types'
 
 export interface SimpleConfig {
-  rpcUrl: string
-  chainId: number
-  relayerAddress: Address
-  privateKey?: Hex
+  chainPreset?: ChainPreset
+  environment?: Environment
+  rpcUrl?: string
+  chainId?: number
+  relayerAddress?: Address
   relayerUrl?: string
+  localRelayerUrl?: string
   apiKey?: string
   // AA-specific (optional) - disabled by default for simplicity
   bundlerUrl?: string
@@ -29,7 +31,6 @@ export interface SimpleTransferParams {
   token: Address
   to: Address
   amount: bigint
-  from?: Hex // private key or will use wallet client
   feeToken?: Address // for AA only
 }
 
@@ -61,15 +62,17 @@ export class Gasless {
 
   private initializeCoreSDK(): void {
     const gaslessConfig: GaslessConfig = {
-      chainId: this.config.chainId,
-      rpcUrl: this.config.rpcUrl,
-      gaslessRelayerAddress: this.config.relayerAddress,
-      ...(this.config.privateKey && { relayerPrivateKey: this.config.privateKey }),
+      ...(this.config.chainPreset && { chainPreset: this.config.chainPreset }),
+      ...(this.config.environment && { environment: this.config.environment }),
+      ...(this.config.chainId && { chainId: this.config.chainId }),
+      ...(this.config.rpcUrl && { rpcUrl: this.config.rpcUrl }),
+      ...(this.config.relayerAddress && { gaslessRelayerAddress: this.config.relayerAddress }),
       ...(this.config.relayerUrl && { relayerServiceUrl: this.config.relayerUrl }),
+      ...(this.config.localRelayerUrl && { localRelayerUrl: this.config.localRelayerUrl }),
       ...(this.config.apiKey && { apiKey: this.config.apiKey }),
     }
 
-    this.coreSDK = new GaslessSDK(gaslessConfig, this.publicClient)
+    this.coreSDK = new GaslessSDK(gaslessConfig)
   }
 
   private initializeAASDK(): void {
@@ -80,8 +83,8 @@ export class Gasless {
     }
 
     const aaConfig: AAGaslessConfig = {
-      chainId: this.config.chainId,
-      rpcUrl: this.config.rpcUrl,
+      chainId: this.config.chainId!,
+      rpcUrl: this.config.rpcUrl!,
       bundlerUrl: this.config.bundlerUrl!,
       paymasterUrl: this.config.paymasterUrl!,
       ...(this.config.apiKey && { apiKey: this.config.apiKey }),
@@ -103,20 +106,11 @@ export class Gasless {
   ): Promise<SimpleResult> {
     if (!this.coreSDK) throw new Error('Core SDK not initialized')
 
-    let walletClient: WalletClient
-
-    if (params.from) {
-      walletClient = createWalletClient({
-        transport: http(this.config.rpcUrl),
-        account: params.from,
-      })
-    } else {
-      throw new Error('Private key required for core transfers')
+    if (!this.coreSDK) {
+      throw new Error('Wallet client required for permit signing. Call setWalletClient() first.')
     }
 
-    this.coreSDK.setWalletClient(walletClient)
-
-    const result = await this.coreSDK.transferGasless({
+    const result = await this.coreSDK.transfer({
       token: params.token,
       to: params.to,
       amount: params.amount,
@@ -134,18 +128,9 @@ export class Gasless {
   ): Promise<SimpleResult> {
     if (!this.aaSDK) throw new Error('AA SDK not initialized')
 
-    let walletClient: WalletClient
-
-    if (params.from) {
-      walletClient = createWalletClient({
-        transport: http(this.config.rpcUrl),
-        account: params.from,
-      })
-    } else {
-      throw new Error('Private key required for AA transfers')
+    if (!this.aaSDK) {
+      throw new Error('Wallet client required for AA transfers. Call setWalletClient() first.')
     }
-
-    this.aaSDK.setWalletClient(walletClient)
 
     const aaParams: AATransferParams = {
       token: params.token,
@@ -161,6 +146,27 @@ export class Gasless {
       hash: result.transactionHash || '',
       ...(result.gasUsed && { gasUsed: result.gasUsed }),
     }
+  }
+
+  // Set wallet client for signing permits
+  public setWalletClient(walletClient: WalletClient): void {
+    if (this.coreSDK) {
+      this.coreSDK.setWalletClient(walletClient)
+    }
+    if (this.aaSDK) {
+      this.aaSDK.setWalletClient(walletClient)
+    }
+  }
+
+  // Connect to browser wallet (MetaMask, etc.)
+  public async connectWallet(): Promise<Address> {
+    if (this.coreSDK) {
+      return await this.coreSDK.connectWallet()
+    }
+    if (this.aaSDK) {
+      return await this.aaSDK.connectWallet()
+    }
+    throw new Error('No SDK initialized')
   }
 
   // Utility methods - simplified API

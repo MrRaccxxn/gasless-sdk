@@ -10,6 +10,9 @@ export type {
 export { GaslessSDK } from './core/gasless-sdk'
 export { GaslessAASDK } from './aa/gasless-aa-sdk'
 
+// Configuration
+export * from './config/chains'
+
 // Core types and utilities
 export * from './types'
 export * from './aa/types'

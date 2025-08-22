@@ -1,12 +1,19 @@
 import { GaslessSDK } from '../core/gasless-sdk'
 import type { GaslessConfig } from '../types'
 
+// Mock the contract calls
+const mockPublicClient = {
+  readContract: jest.fn(),
+  simulateContract: jest.fn(),
+  estimateContractGas: jest.fn(),
+}
+
 // Mock viem completely for integration tests
 jest.mock('viem', () => {
   const actual = jest.requireActual('viem')
   return {
     ...actual,
-    createPublicClient: jest.fn(),
+    createPublicClient: jest.fn(() => mockPublicClient),
     createWalletClient: jest.fn(),
     http: jest.fn(() => 'mock-transport'),
     keccak256: jest.fn(
@@ -21,7 +28,6 @@ jest.mock('viem', () => {
 
 describe('Gasless SDK Integration Tests', () => {
   let sdk: GaslessSDK
-  let mockPublicClient: any
   let mockWalletClient: any
   let config: GaslessConfig
 
@@ -29,15 +35,7 @@ describe('Gasless SDK Integration Tests', () => {
     jest.clearAllMocks()
 
     config = {
-      chainId: 5000,
-      rpcUrl: 'https://rpc.mantle.xyz',
-      gaslessRelayerAddress: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-    }
-
-    mockPublicClient = {
-      readContract: jest.fn(),
-      simulateContract: jest.fn(),
-      estimateContractGas: jest.fn(),
+      chainPreset: 'mantle-sepolia',
     }
 
     mockWalletClient = {
@@ -48,22 +46,12 @@ describe('Gasless SDK Integration Tests', () => {
       signMessage: jest.fn(),
     }
 
-    sdk = new GaslessSDK(config, mockPublicClient)
+    sdk = new GaslessSDK(config)
     sdk.setWalletClient(mockWalletClient)
   })
 
   describe('End-to-End Gasless Transfer Flow', () => {
-    it('should execute complete gasless transfer with relayer key', async () => {
-      // Setup config with relayer key
-      const configWithKey: GaslessConfig = {
-        ...config,
-        relayerPrivateKey:
-          '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      }
-
-      const sdkWithKey = new GaslessSDK(configWithKey, mockPublicClient)
-      sdkWithKey.setWalletClient(mockWalletClient)
-
+    it('should prepare gasless transfer for backend service', async () => {
       // Mock all the required contract calls in sequence
       mockPublicClient.readContract
         .mockResolvedValueOnce(0n) // getUserNonce
@@ -80,18 +68,17 @@ describe('Gasless SDK Integration Tests', () => {
         '0x789abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab'
       )
 
-      // Mock contract simulation
-      mockPublicClient.simulateContract.mockResolvedValue({
-        result: undefined,
-        request: {
-          abi: [],
-          address: '0x742d35cC6b7E4cE7C56F1BA2e0Fb3e00E2fB0E9b',
-          functionName: 'executeMetaTransfer',
-          args: [],
-        },
+      // Mock fetch for backend service call
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: jest.fn().mockResolvedValue({
+          success: true,
+          hash: '0x1234567890abcdef',
+          metaTxHash: '0x789abc1234567890',
+        }),
       })
 
-      // Execute transfer
+      // Execute transfer - should call backend service
       const transferParams = {
         token: '0x8ba1f109551bD432803012645Hac136c11DdF536' as const,
         to: '0x9C8f48C2e7a3E3E3c8F1A2b4c8e2b1a2e8f1a2b4' as const,
@@ -99,7 +86,7 @@ describe('Gasless SDK Integration Tests', () => {
         fee: 10000n, // 0.01 USDC fee
       }
 
-      const result = await sdkWithKey.transferGasless(transferParams)
+      const result = await sdk.transferGasless(transferParams)
 
       // Verify result
       expect(result.success).toBe(true)
@@ -108,8 +95,8 @@ describe('Gasless SDK Integration Tests', () => {
 
       // Verify all signatures were called
       expect(mockWalletClient.signTypedData).toHaveBeenCalledTimes(1)
-      expect(mockWalletClient.signMessage).toHaveBeenCalledTimes(1)
-      expect(mockPublicClient.simulateContract).toHaveBeenCalledTimes(1)
+      expect(mockWalletClient.signMessage).toHaveBeenCalledTimes(2) // permit + auth signature
+      expect(fetch).toHaveBeenCalledTimes(1)
     })
 
     it('should handle token info retrieval and validation', async () => {
@@ -168,7 +155,7 @@ describe('Gasless SDK Integration Tests', () => {
 
       expect(isPaused).toBe(false)
       expect(mockPublicClient.readContract).toHaveBeenCalledWith({
-        address: config.gaslessRelayerAddress,
+        address: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
         abi: expect.any(Array),
         functionName: 'paused',
       })
@@ -228,16 +215,7 @@ describe('Gasless SDK Integration Tests', () => {
       ).rejects.toThrow('Wallet client not set or no account available')
     })
 
-    it('should handle contract simulation failure', async () => {
-      const configWithKey: GaslessConfig = {
-        ...config,
-        relayerPrivateKey:
-          '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-      }
-
-      const sdkWithKey = new GaslessSDK(configWithKey, mockPublicClient)
-      sdkWithKey.setWalletClient(mockWalletClient)
-
+    it('should handle backend service failure', async () => {
       // Mock successful setup calls
       mockPublicClient.readContract
         .mockResolvedValueOnce(0n) // getUserNonce
@@ -253,10 +231,13 @@ describe('Gasless SDK Integration Tests', () => {
         '0x789abc1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab'
       )
 
-      // Mock contract simulation failure
-      mockPublicClient.simulateContract.mockRejectedValue(
-        new Error('Insufficient balance')
-      )
+      // Mock backend service failure
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        json: jest.fn().mockResolvedValue({
+          error: 'Insufficient balance'
+        }),
+      })
 
       const transferParams = {
         token: '0x8ba1f109551bD432803012645Hac136c11DdF536' as const,
@@ -264,8 +245,8 @@ describe('Gasless SDK Integration Tests', () => {
         amount: 1000000n,
       }
 
-      await expect(sdkWithKey.transferGasless(transferParams)).rejects.toThrow(
-        'Transaction simulation failed: Insufficient balance'
+      await expect(sdk.transferGasless(transferParams)).rejects.toThrow(
+        'Insufficient balance'
       )
     })
   })
@@ -288,12 +269,18 @@ describe('Gasless SDK Integration Tests', () => {
     it('should return config copy', () => {
       const returnedConfig = sdk.getConfig()
 
-      expect(returnedConfig).toEqual(config)
+      expect(returnedConfig).toEqual({
+        chainId: 5003,
+        rpcUrl: 'https://rpc.sepolia.mantle.xyz',
+        gaslessRelayerAddress: '0xc500592C002a23EeeB4e93CCfBA60B4c2683fDa9',
+        relayerServiceUrl: 'https://gasless-relayer-sepolia.mantle.com',
+        environment: 'production'
+      })
       expect(returnedConfig).not.toBe(config) // Should be a copy
 
       // Modifying returned config shouldn't affect original
       returnedConfig.chainId = 1
-      expect(sdk.getConfig().chainId).toBe(5000)
+      expect(sdk.getConfig().chainId).toBe(5003)
     })
 
     it('should work with different chain configurations', () => {
